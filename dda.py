@@ -38,51 +38,54 @@ def plot_point(canvas, x, y):
         screen_y - 3,
         screen_x + 3,
         screen_y + 3,
-        fill="red",
-        outline="red",
+        fill="blue",
+        outline="blue",
     )
 
 
-def bresenham_line(canvas, x1, y1, x2, y2):
-    dx = abs(x2 - x1)
-    dy = abs(y2 - y1)
-    sx = 1 if x1 < x2 else -1
-    sy = 1 if y1 < y2 else -1
-    p = dx - dy
+def dda_line(x1, y1, x2, y2):
+    dx = x2 - x1
+    dy = y2 - y1
+    steps = int(max(abs(dx), abs(dy)))
 
-    print("\nBresenham line points:")
+    if steps == 0:
+        return [(x1, y1)]
 
-    while True:
-        plot_point(canvas, x1, y1)
-        print(x1, y1)
+    x_increment = dx / steps
+    y_increment = dy / steps
+    x = x1
+    y = y1
+    points = []
 
-        if x1 == x2 and y1 == y2:
-            break
+    for i in range(steps + 1):
+        points.append((round(x), round(y)))
+        x += x_increment
+        y += y_increment
 
-        p2 = 2 * p
-
-        if p2 > -dy:
-            p -= dy
-            x1 += sx
-
-        if p2 < dx:
-            p += dx
-            y1 += sy
+    return points
 
 
-print("Enter line coordinates")
+print("Enter DDA line coordinates")
 x1 = int(input("x1: "))
 y1 = int(input("y1: "))
 x2 = int(input("x2: "))
 y2 = int(input("y2: "))
 
+points = dda_line(x1, y1, x2, y2)
+
+print("\nDDA points:")
+for x, y in points:
+    print(x, y)
+
 window = tk.Tk()
-window.title("Bresenham Line on Graph")
+window.title("DDA Line on Graph")
 
 canvas = tk.Canvas(window, width=WIDTH, height=HEIGHT, bg="white")
 canvas.pack()
 
 draw_graph(canvas)
-bresenham_line(canvas, x1, y1, x2, y2)
+
+for x, y in points:
+    plot_point(canvas, x, y)
 
 window.mainloop()
