@@ -11,6 +11,4 @@ Computer Graphics and Virtual Reality lab records.
 5. `experiments/05_midpoint_circle_algorithm/midpoint_circle.py` - Midpoint circle drawing algorithm with an auto-scaled graph.
 6. `experiments/06_2d_transformations/transformations_2d.py` - 2D translation, rotation, scaling, and reflection using homogeneous coordinates.
 
-## Output
 
-Use `output/` for screenshots, generated images, and lab output files.
