@@ -1,4 +1,4 @@
-# Experiment 7: Composite Transformations using Matrix Representation
+# Experiment 6: Composite Transformations using Matrix Representation
 
 A sequence of 2D transformations is entered one after another, each built as a 3x3 homogeneous matrix.
 The matrices are multiplied into a single composite matrix `C = Mn x ... x M2 x M1`, so the whole

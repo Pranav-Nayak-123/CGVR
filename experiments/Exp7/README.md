@@ -1,4 +1,4 @@
-# Experiment 8: Cohen-Sutherland Line Clipping
+# Experiment 7: Cohen-Sutherland Line Clipping
 
 Implements the Cohen-Sutherland line clipping algorithm for a rectangular clipping window. The program accepts the clipping-window coordinates and line endpoints from the user, prints the result, and opens a graph.
 

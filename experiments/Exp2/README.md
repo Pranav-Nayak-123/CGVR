@@ -1,4 +1,4 @@
-# Experiment 3: Bresenham Line Algorithm
+# Experiment 2: Bresenham Line Algorithm
 
 Run:
 

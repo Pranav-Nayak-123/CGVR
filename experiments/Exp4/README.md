@@ -1,4 +1,4 @@
-# Experiment 5: Midpoint Circle Drawing Algorithm
+# Experiment 4: Midpoint Circle Drawing Algorithm
 
 Run:
 

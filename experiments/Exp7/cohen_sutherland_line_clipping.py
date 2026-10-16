@@ -1,4 +1,4 @@
-"""Experiment 8: Cohen-Sutherland line clipping algorithm."""
+"""Experiment 7: Cohen-Sutherland line clipping algorithm."""
 
 import tkinter as tk
 

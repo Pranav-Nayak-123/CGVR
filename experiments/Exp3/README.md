@@ -1,4 +1,4 @@
-# Experiment 4: Bresenham Line Graph Visualization
+# Experiment 3: Bresenham Line Graph Visualization
 
 Run:
 
