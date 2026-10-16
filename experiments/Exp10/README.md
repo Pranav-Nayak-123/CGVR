@@ -1,12 +1,10 @@
-# Experiment 10: 3D Viewing Pipeline with Projection and Viewport Mapping
-
-Lab manual: **Experiment 10**. Implement the 3D viewing pipeline, including projection and viewport mapping,
-for displaying 3D objects on a 2D screen.
+# Experiment 10: 3D Viewing Pipeline with Projection and Viewport Mapping (Unity)
 
 ## Aim
 
-To implement the 3D viewing pipeline (modeling, viewing, projection, clipping, perspective division and
-viewport transformations) using 4 x 4 homogeneous matrices, and display a 3D object on a 2D screen.
+To implement the 3D viewing pipeline (modeling, viewing, projection, clipping, perspective division and viewport
+transformations) with 4 x 4 homogeneous matrices for displaying 3D objects on a 2D screen, and to verify it
+against the cameras of Unity.
 
 ## Course Outcome
 
@@ -23,7 +21,7 @@ After completing this experiment, the student will be able to
 - List the coordinate systems a vertex passes through in the 3D viewing pipeline.
 - Build the viewing (look-at) matrix from the camera position, look-at point and up vector.
 - Build perspective and orthographic projection matrices and compare the two projections.
-- Clip lines in homogeneous coordinates and perform perspective division to get normalized device coordinates.
+- Perform the clipping test and perspective division to get normalized device coordinates.
 - Map normalized device coordinates to a screen viewport using the viewport transformation.
 
 ## Theory
@@ -35,17 +33,18 @@ Modeling coords --M--> World coords --V--> Camera coords --P--> Clip coords
 
 | Stage | Matrix | What it does |
 | --- | --- | --- |
-| Modeling | `M = Ry(30) x T(-1, 0, -1)` | Places the object (defined in its own coordinates) in the world |
+| Modeling | `M = T x Ry x S` | Places the house (defined in its own coordinates) in the world |
 | Viewing | `V` (look-at) | Moves the camera to the origin, looking along -z with +y up |
 | Projection | `P` | Perspective or orthographic projection into homogeneous clip coordinates |
-| Clipping | — | Keeps only the parts of lines with `-w <= x, y, z <= w` |
+| Clipping | — | Keeps only points with `-w <= x, y, z <= w` |
 | Perspective division | — | `NDC = (x / w, y / w, z / w)`, each in the range [-1, 1] |
-| Viewport | `W` | Maps NDC to the pixel rectangle of the viewport on the screen |
+| Viewport | — | Maps NDC to the pixel rectangle of the viewport on the screen |
 
-**Viewing matrix.** With camera position `eye`, look-at point `at` and up vector `up`:
+**Viewing matrix.** With camera position `eye`, look-at point `at` and up vector `up`, and
+`forward = (at - eye) / |at - eye|`:
 
 ```text
-n = (eye - at) / |eye - at|      u = (up x n) / |up x n|      v = n x u
+u = (up x forward) / |up x forward|      v = forward x u      n = -forward
 
 V = | ux  uy  uz  -u.eye |
     | vx  vy  vz  -v.eye |
@@ -53,13 +52,16 @@ V = | ux  uy  uz  -u.eye |
     | 0   0   0     1    |
 ```
 
+(Unity's world is left-handed, so `u = up x forward`. The camera space is the same as OpenGL's: the camera looks
+along -z.)
+
 **Perspective projection** (field of view `fov`, aspect ratio `a`, near `n`, far `f`, with `t = 1 / tan(fov / 2)`):
 
 ```text
-P = | t/a  0       0              0       |
-    |  0   t       0              0       |
+P = | t/a  0       0               0       |
+    |  0   t       0               0       |
     |  0   0  (f + n)/(n - f)  2fn/(n - f) |
-    |  0   0      -1              0       |
+    |  0   0      -1               0       |
 ```
 
 Here `w = -z` (the distance in front of the camera), so dividing by `w` makes far objects smaller.
@@ -67,64 +69,62 @@ Here `w = -z` (the distance in front of the camera), so dividing by `w` makes fa
 **Orthographic projection** (view volume half width `r` and half height `t`):
 
 ```text
-P = | 1/r   0      0            0         |
-    |  0   1/t     0            0         |
+P = | 1/r   0      0              0          |
+    |  0   1/t     0              0          |
     |  0    0   -2/(f - n)  -(f + n)/(f - n) |
-    |  0    0      0            1         |
+    |  0    0      0              1          |
 ```
 
 Here `w` stays 1, so parallel lines stay parallel and the size does not change with distance.
 
-**Viewport transformation** for a viewport at `(x, y)` with width `W` and height `H` (screen y grows downwards):
+**Viewport transformation** for a viewport at `(x, y)` with width `W` and height `H` (Unity screen coordinates
+start at the bottom left):
 
 ```text
-xs = x + (xn + 1) W / 2          ys = y + (1 - yn) H / 2
+xs = x + (xn + 1) W / 2          ys = y + (yn + 1) H / 2
 ```
 
 ## Algorithm
 
-1. Read the camera position, look-at point, field of view, and near and far distances.
-2. Build `M`, `V`, `P` (perspective and orthographic) and the viewport matrix `W` for each viewport.
-3. For every edge of the object (and of the ground grid):
-   1. Transform both end points to clip coordinates: `clip = P x V x M x point`.
-   2. Clip the edge against `-w <= x, y, z <= w` (parametric line clipping).
-   3. Divide the clipped end points by `w` to get NDC.
-   4. Apply the viewport transformation to get screen coordinates and draw the line.
-4. Print every matrix and the coordinates of one vertex at every stage of the pipeline.
+1. Build `M` from the house's position, rotation about Y and scale.
+2. Build `V` from the camera position, the look-at point and the up vector.
+3. Build `P` for the perspective camera and for the orthographic camera.
+4. For each vertex of the house: `clip = P x V x M x vertex`. Keep it if `-w <= x, y, z <= w`.
+5. Divide by `w` to get NDC, then apply the viewport transformation of that camera's viewport.
+6. Compare `V`, `P` and the screen points with Unity's `worldToCameraMatrix`, `projectionMatrix` and
+   `WorldToScreenPoint`.
 
 ## Program
 
-The object is a wireframe house (14 vertices, 20 edges) standing on a ground grid. The same scene is drawn in two
-viewports: perspective projection on the left and orthographic (parallel) projection on the right. The grid lines
-converge in the perspective view and stay parallel in the orthographic view. Lines that leave the view volume are
-clipped at the viewport border.
+The scene has a house on a ground grid, seen by two cameras placed at the same position: the left half of the
+screen is the **perspective** viewport and the right half is the **orthographic** viewport (`Camera.rect`). The
+grid lines converge in the perspective view and stay parallel in the orthographic view.
 
-The console prints `M`, `V` (with the u, v, n camera axes), both projection matrices, both viewport matrices, the
-composite matrix `P x V x M`, the coordinates of vertex 8 (the front roof peak, marked with a red dot) at every
-stage, and the world and screen coordinates of every vertex.
+`Assets/Exp10/Scripts/ViewingPipeline.cs` builds every matrix by hand, takes each house vertex through the
+pipeline and draws a red square where it lands on the screen; the yellow square is vertex 8 (the front roof peak).
+The squares sit exactly on the corners of the house that Unity renders. The text at the bottom shows vertex 8 in
+clip coordinates, NDC and screen coordinates, and the largest difference between the hand-made results and
+Unity's (close to 0). Press **M** to print all the matrices and the full trace of vertex 8 to the Console.
 
-## Run
+## Setting up in Unity
 
-```powershell
-python viewing_pipeline_3d.py
-```
+1. Install Unity Hub and a Unity Editor (2022.3 LTS or Unity 6).
+2. Create a new project with the **3D (Built-In Render Pipeline)** or **Universal 3D** template.
+3. Copy the folder `Assets/Exp10` from this experiment into the `Assets` folder of the Unity project.
+4. Create a new scene (File > New Scene), then choose **CGVR Lab > Exp 10 - Build Viewing Pipeline Scene** from
+   the menu bar.
+5. Save the scene (File > Save As, for example `Exp10`) and press **Play**.
 
-Press Enter to use the default values or type your own:
+## Controls
 
-```text
-Camera position (eye) x y z [5 2.5 1.5]:
-Look-at point x y z [0 1 0]:
-Field of view in degrees [60]:
-Near plane distance [1]:
-Far plane distance [20]:
-```
-
-In the window, the arrow keys orbit the camera around the look-at point and `+` / `-` move it closer or farther.
-Moving very close shows the near plane and the viewport edges clipping the house.
-Only Python's built-in `tkinter` library is used.
+| Key | Action |
+| --- | --- |
+| Arrow keys | Orbit the camera around the house |
+| + / - | Move the camera closer / farther |
+| M | Print the matrices and the trace of vertex 8 to the Console |
 
 ## Result
 
-The 3D viewing pipeline was implemented with homogeneous matrices. The house was transformed from modeling
-coordinates to screen coordinates, clipped to the view volume, and displayed in two viewports using perspective
-and orthographic projection.
+The 3D viewing pipeline was implemented with 4 x 4 homogeneous matrices. The house was taken from modeling
+coordinates to screen coordinates for a perspective and an orthographic camera in two viewports, and the
+hand-computed matrices and screen positions matched those of Unity's cameras.

@@ -1,15 +1,13 @@
-# Experiment 8: Z-Buffer Algorithm for Hidden Surface Removal
-
-Lab manual: **Experiment 6**. Implement the Z-buffer algorithm for hidden surface removal.
+# Experiment 8: Basic Program using Vertex and Fragment Shaders (Unity)
 
 ## Aim
 
-To implement the Z-buffer (depth buffer) algorithm for hidden surface removal, so that when 3D objects overlap
-on the screen only the surface nearest to the viewer is displayed at every pixel.
+To develop a basic program that renders 3D objects with a hand-written vertex shader and fragment shader, and to
+pass values (uniforms) from the application to the shaders every frame, using Unity.
 
 ## Course Outcome
 
-Apply visible surface detection (hidden surface removal) methods to display 3D scenes correctly.
+Apply the programmable graphics pipeline (vertex and fragment shaders) to render and animate 3D objects.
 
 ## Bloom's Taxonomy Level
 
@@ -19,83 +17,71 @@ L3 – Apply
 
 After completing this experiment, the student will be able to
 
-- Explain why hidden surface removal is needed when 3D objects are projected onto a 2D screen.
-- Describe the frame buffer and the depth (Z) buffer and how each one is initialised.
-- Compute the depth of a polygon at a pixel from its plane equation and update it incrementally along a scan line.
-- Implement the per-pixel depth test that keeps only the nearest surface.
-- Compare the Z-buffer result with drawing the polygons in a fixed order.
+- Describe the stages of the programmable graphics pipeline.
+- Write a vertex shader that transforms vertices with the model-view-projection matrix.
+- Write a fragment shader that computes the colour of each pixel.
+- Pass data from vertices to fragments and see it interpolated by the rasteriser.
+- Send uniform values from a C# script to a shader and change them while the program runs.
 
 ## Theory
 
-The Z-buffer method is an image-space method: the visibility decision is made separately for every pixel.
-Two buffers of the same size as the screen are used:
-
-- **Frame buffer** `frame(x, y)` stores the colour of each pixel.
-- **Depth buffer** `depth(x, y)` stores the depth of the nearest surface found so far at that pixel.
-
-Polygons can be processed in any order. For a polygon lying in the plane `Ax + By + Cz + D = 0`, the depth at a pixel is
-
 ```text
-z = (-A x - B y - D) / C
+Mesh vertices -> Vertex shader -> Primitive assembly and rasterisation -> Fragment shader -> Screen
 ```
 
-Moving one pixel to the right along a scan line changes `x` by 1, so the next depth needs only one addition:
+- The **vertex shader** runs once for every vertex. It must output the vertex position in clip coordinates,
+  normally `clip = Projection x View x Model x position` (`UnityObjectToClipPos` in Unity). It can also move the
+  vertex and pass extra values, such as a colour or a normal, to the next stage.
+- The **rasteriser** finds the pixels covered by each triangle and interpolates the values output by the vertex
+  shader across the triangle.
+- The **fragment shader** runs once for every covered pixel and returns its final colour.
+- **Uniforms** are values that are the same for every vertex and pixel in a draw call (here the animation time,
+  the wave amplitude and the colour mode). The C# script sets them with `material.SetFloat` each frame.
 
-```text
-z(x + 1) = z(x) - A / C
-```
+Unity shaders are written in HLSL inside a ShaderLab file. Unity compiles them to GLSL when the project uses the
+OpenGL graphics API (see the OpenGL note below).
 
-Advantages: simple, works for any polygons in any order, and handles surfaces that pass through each other.
-Disadvantages: needs extra memory for the depth buffer, and depth precision is limited.
+## The shaders
 
-## Algorithm
+`Assets/Exp8/Shaders/VertexFragmentShader.shader`
 
-1. For every pixel set `depth(x, y) = infinity` (farthest) and `frame(x, y) = background colour`.
-2. For each polygon of the scene:
-   1. Transform its vertices to screen coordinates `(x, y)` and keep the depth `z` of each vertex.
-   2. Find the plane coefficients `A, B, C, D` of the polygon. If `C = 0` the polygon is seen edge-on and is skipped.
-   3. Scan-convert the polygon. For each pixel `(x, y)` inside it compute `z` from the plane equation
-      (incrementally along each scan line).
-   4. If `z < depth(x, y)`, set `depth(x, y) = z` and `frame(x, y) = colour of the polygon`.
-3. When all polygons are processed, the frame buffer holds the visible surfaces and the depth buffer holds the
-   depth of the nearest surface at each pixel.
+- **Vertex shader:** moves every vertex along its normal by a travelling sine wave
+  `sin(y * frequency + time * speed) * amplitude`, transforms it to clip space, and gives it a colour that goes
+  from red at the bottom to blue at the top.
+- **Fragment shader**, mode chosen with keys 1 to 4:
 
-## Program
+| Key | Mode | Fragment shader operation |
+| --- | --- | --- |
+| 1 | Interpolated vertex colours | output the colour interpolated from the vertices |
+| 2 | Diffuse lighting | colour x (0.25 + 0.75 max(N . L, 0)) |
+| 3 | Grayscale | luminance = 0.299 R + 0.587 G + 0.114 B |
+| 4 | Normals | colour = N x 0.5 + 0.5 |
 
-- The scene has a cube, a pyramid and a slanted plate that passes through both solids (12 faces in total).
-- The objects are rotated about the Y axis and then the X axis, and projected orthographically onto a
-  300 x 300 frame buffer. The viewer looks along -z, so `depth = -z` and a smaller depth is nearer.
-- No back-face culling is done. Every face, including the back faces, goes through the depth test, so the
-  Z-buffer alone decides what is visible.
+`Assets/Exp8/Scripts/ShaderController.cs` sets the uniforms `_Mode`, `_AnimationTime` and `_WaveAmplitude` every
+frame, rotates the objects, and shows the current mode, the shader name and the graphics API on screen.
 
-The window shows three panels:
+## Setting up in Unity
 
-| Panel | Meaning |
+1. Install Unity Hub and a Unity Editor (2022.3 LTS or Unity 6).
+2. Create a new project with the **3D (Built-In Render Pipeline)** or **Universal 3D** template.
+3. Copy the folder `Assets/Exp8` from this experiment into the `Assets` folder of the Unity project.
+4. Create a new scene (File > New Scene), then choose **CGVR Lab > Exp 8 - Build Shader Scene** from the menu bar.
+   This creates a material that uses the shader, a sphere and two capsules that use it, a camera and the controller.
+5. Save the scene (File > Save As, for example `Exp8`) and press **Play**.
+
+**To run it on OpenGL:** Edit > Project Settings > Player > Other Settings, untick **Auto Graphics API for
+Windows**, add **OpenGLCore** to the list and move it to the top, then restart the editor. The on-screen text then
+shows `Graphics API: OpenGLCore`, and the shader runs as GLSL.
+
+## Controls
+
+| Key | Action |
 | --- | --- |
-| Without Z-buffer | Faces drawn in list order with no depth test. Back faces and the plate wrongly cover the front faces. |
-| With Z-buffer | Correct result. The plate disappears inside the cube and the pyramid and the hidden faces are removed. |
-| Depth buffer | Final contents of the depth buffer as grey levels (brighter = nearer, black = nothing drawn). |
-
-The console prints, for every face, the number of pixels tested, written and finally visible, and whether
-the face is fully visible, partly hidden or hidden, along with the totals for the whole scene.
-
-## Run
-
-```powershell
-python z_buffer.py
-```
-
-Press Enter to use the default view or type your own angles:
-
-```text
-Rotation about the Y axis in degrees [-20]:
-Rotation about the X axis in degrees [20]:
-```
-
-In the window, the arrow keys rotate the view and all three panels are drawn again.
-Only Python's built-in `tkinter` library is used.
+| 1 - 4 | Fragment shader mode |
+| Up / Down arrow | Increase / decrease the vertex wave amplitude |
+| Space | Pause / resume the animation |
 
 ## Result
 
-The Z-buffer algorithm was implemented and the hidden surfaces were removed correctly, including the parts
-of the plate that lie inside the cube and the pyramid, which drawing the faces in a fixed order cannot handle.
+A vertex shader and a fragment shader were written and applied to 3D objects. The vertex shader animated the
+geometry and the fragment shader coloured each pixel, with the uniforms controlled from a C# script at run time.

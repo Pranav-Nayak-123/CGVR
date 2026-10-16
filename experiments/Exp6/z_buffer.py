@@ -1,18 +1,21 @@
-"""Experiment 8 (lab manual Experiment 6): Z-buffer (depth buffer) algorithm for hidden surface removal."""
+"""Experiment 6: Z-buffer (depth buffer) algorithm for hidden surface removal using OpenGL."""
 
 import math
-import tkinter as tk
+
+from OpenGL.GL import *
+from OpenGL.GLU import *
+from OpenGL.GLUT import *
 
 
 PANEL_SIZE = 300
 PANEL_GAP = 25
 MARGIN = 30
-TITLE_HEIGHT = 90
-FOOTER_HEIGHT = 120
+TITLE_HEIGHT = 95
+FOOTER_HEIGHT = 110
 WIDTH = 3 * PANEL_SIZE + 2 * PANEL_GAP + 2 * MARGIN
 HEIGHT = TITLE_HEIGHT + PANEL_SIZE + FOOTER_HEIGHT
 SCALE = 70
-BACKGROUND = "#14141e"
+BACKGROUND = (20, 20, 30)
 LIGHT_DIRECTION = (0.4, 0.8, 0.45)
 ROTATION_STEP = 10
 
@@ -89,9 +92,8 @@ def shade(points, color):
     # Flat shading only so that neighbouring faces of the same object look different
     normal = normalize(cross(subtract(points[1], points[0]), subtract(points[2], points[0])))
     brightness = 0.45 + 0.55 * abs(dot(normal, normalize(LIGHT_DIRECTION)))
-    red, green, blue = (int(channel * brightness) for channel in color)
 
-    return f"#{red:02x}{green:02x}{blue:02x}"
+    return tuple(int(channel * brightness) for channel in color)
 
 
 def build_scene():
@@ -128,6 +130,10 @@ def to_screen(point):
     return PANEL_SIZE / 2 + SCALE * x, PANEL_SIZE / 2 - SCALE * y, -z
 
 
+def screen_faces(faces, yaw, pitch):
+    return [[to_screen(rotate_view(point, yaw, pitch)) for point in face["points"]] for face in faces]
+
+
 def plane_coefficients(points):
     # Plane Ax + By + Cz + D = 0 through the first three vertices of the face
     (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = points[:3]
@@ -152,7 +158,7 @@ def edge_crossings(points, y):
     return crossings
 
 
-def scan_convert_face(points, color, face_index, frame, depth, owner, use_depth_test):
+def scan_convert_face(points, color, face_index, frame, depth, owner):
     a, b, c, d = plane_coefficients(points)
 
     if abs(c) < 1e-9:
@@ -186,7 +192,8 @@ def scan_convert_face(points, color, face_index, frame, depth, owner, use_depth_
         for column in range(first_column, last_column + 1):
             tested += 1
 
-            if not use_depth_test or z < depth[row][column]:
+            # The depth test: keep the new surface only if it is nearer than the stored one
+            if z < depth[row][column]:
                 depth[row][column] = z
                 frame[row][column] = color
                 owner[row][column] = face_index
@@ -197,7 +204,7 @@ def scan_convert_face(points, color, face_index, frame, depth, owner, use_depth_
     return tested, written
 
 
-def render(faces, yaw, pitch, use_depth_test):
+def z_buffer_render(faces, projected):
     # Frame buffer starts with the background colour and the depth buffer with the
     # farthest possible depth (infinity)
     frame = [[BACKGROUND] * PANEL_SIZE for _ in range(PANEL_SIZE)]
@@ -205,9 +212,8 @@ def render(faces, yaw, pitch, use_depth_test):
     owner = [[None] * PANEL_SIZE for _ in range(PANEL_SIZE)]
     counts = []
 
-    for index, face in enumerate(faces):
-        points = [to_screen(rotate_view(point, yaw, pitch)) for point in face["points"]]
-        counts.append(scan_convert_face(points, face["color"], index, frame, depth, owner, use_depth_test))
+    for index, (face, points) in enumerate(zip(faces, projected)):
+        counts.append(scan_convert_face(points, face["color"], index, frame, depth, owner))
 
     return frame, depth, owner, counts
 
@@ -259,102 +265,95 @@ def print_report(faces, depth, owner, counts, yaw, pitch):
         print(f"\nPixel ({centre}, {centre}): depth = {depth[centre][centre]:.4f}, colour from {faces[face_index]['name']}")
 
 
-def depth_to_colors(depth):
+def frame_to_bytes(frame):
+    # glDrawPixels fills the image from the bottom row up, while row 0 of the buffer is the top
+    data = bytearray()
+
+    for row in reversed(frame):
+        for red, green, blue in row:
+            data += bytes((red, green, blue))
+
+    return bytes(data)
+
+
+def depth_to_bytes(depth):
     values = [z for row in depth for z in row if z != math.inf]
     nearest = min(values)
     span = (max(values) - nearest) or 1
-    rows = []
+    data = bytearray()
 
-    for row in depth:
-        colors = []
-
+    for row in reversed(depth):
         for z in row:
-            if z == math.inf:
-                colors.append("#000000")
-            else:
-                # Nearest surface is brightest, farthest visible surface is dark grey
-                level = int(235 - 175 * (z - nearest) / span)
-                colors.append(f"#{level:02x}{level:02x}{level:02x}")
+            # Nearest surface is brightest, farthest visible surface is dark grey, empty is black
+            level = 0 if z == math.inf else int(235 - 175 * (z - nearest) / span)
+            data += bytes((level, level, level))
 
-        rows.append(colors)
-
-    return rows
+    return bytes(data)
 
 
-def make_image(pixels):
-    image = tk.PhotoImage(width=PANEL_SIZE, height=PANEL_SIZE)
-    image.put(" ".join("{" + " ".join(row) + "}" for row in pixels))
+def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_12):
+    glRasterPos2f(x, y)
 
-    return image
+    for character in text:
+        glutBitmapCharacter(font, ord(character))
 
 
-def draw_legend(canvas, y):
+def text_width(text, font=GLUT_BITMAP_HELVETICA_12):
+    return sum(glutBitmapWidth(font, ord(character)) for character in text)
+
+
+def pixel_view(width, height):
+    glViewport(0, 0, width, height)
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    gluOrtho2D(0, width, 0, height)
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+
+
+def draw_faces_with_opengl(faces, projected, left, bottom, use_depth_test):
+    # Same screen coordinates as the software Z-buffer: x right, y down, and z = -depth so that
+    # glOrtho maps a smaller depth to a smaller window depth (nearer, as GL_LESS expects)
+    glViewport(left, bottom, PANEL_SIZE, PANEL_SIZE)
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    glOrtho(0, PANEL_SIZE, PANEL_SIZE, 0, -10, 10)
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+
+    glScissor(left, bottom, PANEL_SIZE, PANEL_SIZE)
+    glEnable(GL_SCISSOR_TEST)
+    glClearColor(*(channel / 255 for channel in BACKGROUND), 1)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glDisable(GL_SCISSOR_TEST)
+    glClearColor(1, 1, 1, 1)
+
+    if use_depth_test:
+        glEnable(GL_DEPTH_TEST)
+        glDepthFunc(GL_LESS)
+
+    for face, points in zip(faces, projected):
+        glColor3ub(*face["color"])
+        glBegin(GL_POLYGON)
+
+        for x, y, depth in points:
+            glVertex3f(x, y, -depth)
+
+        glEnd()
+
+    glDisable(GL_DEPTH_TEST)
+
+
+def draw_legend(y):
     items = [("Cube", CUBE_COLOR), ("Pyramid", PYRAMID_COLOR), ("Slanted plate", PLATE_COLOR)]
     x = MARGIN
 
-    for name, (red, green, blue) in items:
-        canvas.create_rectangle(x, y - 6, x + 12, y + 6, fill=f"#{red:02x}{green:02x}{blue:02x}", outline="")
-        canvas.create_text(x + 18, y, text=name, anchor="w", font=("Arial", 9))
+    for name, color in items:
+        glColor3ub(*color)
+        glRectf(x, y - 6, x + 12, y + 6)
+        glColor3f(0, 0, 0)
+        draw_text(x + 18, y - 4, name)
         x += 120
-
-
-def draw_window(canvas, faces, state):
-    yaw = state["yaw"]
-    pitch = state["pitch"]
-    plain = render(faces, yaw, pitch, False)
-    frame, depth, owner, counts = render(faces, yaw, pitch, True)
-    total_tested = sum(tested for tested, written in counts)
-    total_written = sum(written for tested, written in counts)
-
-    # Tk discards images that Python no longer references, so keep them in state
-    state["images"] = [make_image(plain[0]), make_image(frame), make_image(depth_to_colors(depth))]
-    titles = [
-        "Without Z-buffer (faces in list order)",
-        "With Z-buffer (hidden surfaces removed)",
-        "Depth buffer (brighter = nearer)",
-    ]
-
-    canvas.delete("all")
-    canvas.create_text(
-        MARGIN, 22, text="Z-Buffer Algorithm for Hidden Surface Removal", anchor="w", font=("Arial", 13, "bold")
-    )
-    canvas.create_text(
-        MARGIN,
-        46,
-        text=f"For every pixel of every face: if z < depth(x, y) then depth(x, y) = z and frame(x, y) = face colour"
-        f"      View: {yaw:g}° about Y, {pitch:g}° about X",
-        anchor="w",
-        fill="#555555",
-        font=("Arial", 9),
-    )
-
-    for i, image in enumerate(state["images"]):
-        left = MARGIN + i * (PANEL_SIZE + PANEL_GAP)
-        canvas.create_text(left + PANEL_SIZE / 2, TITLE_HEIGHT - 14, text=titles[i], font=("Arial", 10, "bold"))
-        canvas.create_image(left, TITLE_HEIGHT, image=image, anchor="nw")
-        canvas.create_rectangle(left, TITLE_HEIGHT, left + PANEL_SIZE, TITLE_HEIGHT + PANEL_SIZE, outline="black")
-
-    footer = TITLE_HEIGHT + PANEL_SIZE
-    draw_legend(canvas, footer + 25)
-    canvas.create_text(
-        MARGIN,
-        footer + 55,
-        text=f"Depth comparisons: {total_tested}      Pixels written: {total_written}"
-        f"      Rejected by the depth test: {total_tested - total_written}",
-        anchor="w",
-        font=("Arial", 10),
-    )
-    canvas.create_text(
-        MARGIN,
-        footer + 85,
-        text="Arrow keys: rotate the view      Depth buffer size = frame buffer size = "
-        f"{PANEL_SIZE} x {PANEL_SIZE}",
-        anchor="w",
-        fill="#555555",
-        font=("Arial", 9),
-    )
-
-    return depth, owner, counts
 
 
 def read_number(prompt, default):
@@ -369,27 +368,115 @@ def main():
     state = {
         "yaw": read_number("Rotation about the Y axis in degrees", -20),
         "pitch": read_number("Rotation about the X axis in degrees", 20),
+        "hardware": False,
     }
     faces = build_scene()
 
-    window = tk.Tk()
-    window.title("Z-Buffer Hidden Surface Removal")
-    canvas = tk.Canvas(window, width=WIDTH, height=HEIGHT, bg="white")
-    canvas.pack()
+    def update_buffers():
+        projected = screen_faces(faces, state["yaw"], state["pitch"])
+        frame, depth, owner, counts = z_buffer_render(faces, projected)
+        state.update(projected=projected, depth=depth, owner=owner, counts=counts)
+        state["frame_bytes"] = frame_to_bytes(frame)
+        state["depth_bytes"] = depth_to_bytes(depth)
 
-    depth, owner, counts = draw_window(canvas, faces, state)
-    print_report(faces, depth, owner, counts, state["yaw"], state["pitch"])
+    update_buffers()
+    print_report(faces, state["depth"], state["owner"], state["counts"], state["yaw"], state["pitch"])
 
-    def rotate(yaw_change, pitch_change):
-        state["yaw"] += yaw_change
-        state["pitch"] += pitch_change
-        draw_window(canvas, faces, state)
+    def display():
+        width = glutGet(GLUT_WINDOW_WIDTH)
+        height = glutGet(GLUT_WINDOW_HEIGHT)
+        bottom = FOOTER_HEIGHT
+        lefts = [MARGIN + i * (PANEL_SIZE + PANEL_GAP) for i in range(3)]
+        total_tested = sum(tested for tested, written in state["counts"])
+        total_written = sum(written for tested, written in state["counts"])
 
-    window.bind("<Left>", lambda event: rotate(-ROTATION_STEP, 0))
-    window.bind("<Right>", lambda event: rotate(ROTATION_STEP, 0))
-    window.bind("<Up>", lambda event: rotate(0, ROTATION_STEP))
-    window.bind("<Down>", lambda event: rotate(0, -ROTATION_STEP))
-    window.mainloop()
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+        # Panel 1: OpenGL draws the faces in list order with no depth test
+        draw_faces_with_opengl(faces, state["projected"], lefts[0], bottom, False)
+
+        # Panel 2: our Z-buffer result copied to the screen, or OpenGL's own depth test for comparison
+        if state["hardware"]:
+            draw_faces_with_opengl(faces, state["projected"], lefts[1], bottom, True)
+        else:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+            glWindowPos2i(lefts[1], bottom)
+            glDrawPixels(PANEL_SIZE, PANEL_SIZE, GL_RGB, GL_UNSIGNED_BYTE, state["frame_bytes"])
+
+        # Panel 3: the contents of our depth buffer as grey levels
+        glWindowPos2i(lefts[2], bottom)
+        glDrawPixels(PANEL_SIZE, PANEL_SIZE, GL_RGB, GL_UNSIGNED_BYTE, state["depth_bytes"])
+
+        pixel_view(width, height)
+        titles = [
+            "Without depth test (list order)",
+            "OpenGL GL_DEPTH_TEST" if state["hardware"] else "With Z-buffer (our algorithm)",
+            "Depth buffer (brighter = nearer)",
+        ]
+
+        for left, title in zip(lefts, titles):
+            glColor3f(0, 0, 0)
+            draw_text(left + (PANEL_SIZE - text_width(title)) / 2, bottom + PANEL_SIZE + 12, title)
+            glBegin(GL_LINE_LOOP)
+            glVertex2f(left, bottom)
+            glVertex2f(left + PANEL_SIZE, bottom)
+            glVertex2f(left + PANEL_SIZE, bottom + PANEL_SIZE)
+            glVertex2f(left, bottom + PANEL_SIZE)
+            glEnd()
+
+        glColor3f(0, 0, 0)
+        draw_text(MARGIN, height - 30, "Z-Buffer Algorithm for Hidden Surface Removal", GLUT_BITMAP_HELVETICA_18)
+        glColor3f(0.35, 0.35, 0.35)
+        draw_text(
+            MARGIN,
+            height - 54,
+            "For every pixel of every face: if z < depth(x, y) then depth(x, y) = z and frame(x, y) = face colour"
+            f"      View: {state['yaw']:g} deg about Y, {state['pitch']:g} deg about X",
+        )
+
+        draw_legend(bottom - 25)
+        glColor3f(0, 0, 0)
+        draw_text(
+            MARGIN,
+            bottom - 55,
+            f"Depth comparisons: {total_tested}      Pixels written: {total_written}"
+            f"      Rejected by the depth test: {total_tested - total_written}",
+        )
+        glColor3f(0.35, 0.35, 0.35)
+        draw_text(MARGIN, bottom - 85, "Arrow keys: rotate the view      H: switch panel 2 between our Z-buffer and OpenGL's      Esc: close")
+        glutSwapBuffers()
+
+    def keyboard(key, x, y):
+        if key == b"\x1b":
+            glutLeaveMainLoop()
+        elif key in (b"h", b"H"):
+            state["hardware"] = not state["hardware"]
+            glutPostRedisplay()
+
+    def special_keys(key, x, y):
+        changes = {
+            GLUT_KEY_LEFT: (-ROTATION_STEP, 0),
+            GLUT_KEY_RIGHT: (ROTATION_STEP, 0),
+            GLUT_KEY_UP: (0, ROTATION_STEP),
+            GLUT_KEY_DOWN: (0, -ROTATION_STEP),
+        }
+
+        if key in changes:
+            state["yaw"] += changes[key][0]
+            state["pitch"] += changes[key][1]
+            update_buffers()
+            glutPostRedisplay()
+
+    glutInit()
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+    glutInitWindowSize(WIDTH, HEIGHT)
+    glutCreateWindow(b"Z-Buffer Hidden Surface Removal")
+    glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS)
+    glClearColor(1, 1, 1, 1)
+    glutDisplayFunc(display)
+    glutKeyboardFunc(keyboard)
+    glutSpecialFunc(special_keys)
+    glutMainLoop()
 
 
 if __name__ == "__main__":

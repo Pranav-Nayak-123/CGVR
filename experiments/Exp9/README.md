@@ -1,15 +1,13 @@
-# Experiment 9: Phong Illumination Model
-
-Lab manual: **Experiment 7**. Implement the Phong illumination model for a 3D object.
+# Experiment 9: Simple Interactive 3D Scene using Unity
 
 ## Aim
 
-To implement the Phong illumination model, combining ambient, diffuse and specular reflection, to compute the
-intensity of light reflected from every point on the surface of a 3D object (a sphere).
+To create a simple interactive 3D scene in Unity with objects, materials, lights, a camera, physics and C#
+scripts that respond to keyboard and mouse input.
 
 ## Course Outcome
 
-Apply illumination models to compute the shading of 3D objects.
+Apply a game engine to build interactive 3D and virtual environments.
 
 ## Bloom's Taxonomy Level
 
@@ -19,81 +17,64 @@ L3 – Apply
 
 After completing this experiment, the student will be able to
 
-- Explain the ambient, diffuse and specular components of reflected light.
-- Compute the unit vectors N, L, V and R at a point on a surface.
-- Apply Lambert's cosine law for diffuse reflection.
-- Explain how the shininess exponent n controls the size of the specular highlight.
-- Implement the Phong illumination model and observe the effect of ka, kd, ks, n and the light position.
+- Create and arrange GameObjects using Unity's primitives and the Transform component (position, rotation, scale).
+- Add lights and a camera to a scene and set their properties.
+- Write C# scripts (MonoBehaviour) that use `Start`, `Update`, `OnTriggerEnter` and `OnGUI`.
+- Handle keyboard and mouse input to move a first-person player and interact with objects.
+- Use Unity physics: colliders, triggers, rigidbodies, the CharacterController and raycasting.
 
-## Theory
+## The scene
 
-The Phong illumination model gives the intensity at a surface point as the sum of three terms:
-
-```text
-I = ka Ia  +  kd Il max(N . L, 0)  +  ks Il max(R . V, 0)^n
-    ambient   diffuse                 specular
-```
-
-| Symbol | Meaning |
+| Part | What it shows |
 | --- | --- |
-| `Ia`, `Il` | Intensity of the ambient light and of the point light source |
-| `ka`, `kd`, `ks` | Ambient, diffuse and specular reflection coefficients (0 to 1) |
-| `n` | Shininess (specular exponent). A larger n gives a smaller, sharper highlight |
-| `N` | Unit surface normal at the point |
-| `L` | Unit vector from the point towards the light |
-| `V` | Unit vector from the point towards the viewer |
-| `R` | Reflection of L about N: `R = 2 (N . L) N - L` |
+| Ground and four walls | Primitives (plane and cubes) placed and scaled with Transforms |
+| Sun (directional light) | Lighting with soft shadows |
+| Lamp (point light) | A second light that can be switched on and off with **L** |
+| Spinning cube on a pedestal | A script that rotates an object every frame (`Spinner`) |
+| Three colour cubes | Raycasting: click the cube in the centre of the screen to change its colour (`ColorChanger`) |
+| Balls and stacked crates | Rigidbody physics: walk into them to push them over |
+| Five gold coins | Trigger colliders: walk through them to collect them, the score is shown on screen (`Collectible`) |
+| Player | First-person camera with a CharacterController: walk, look around and jump (`PlayerController`) |
 
-- **Ambient** light is scattered evenly by the surroundings, so it lights every point equally.
-- **Diffuse** reflection follows Lambert's cosine law. It is brightest where the surface faces the light and zero
-  where `N . L <= 0` (the side facing away from the light).
-- **Specular** reflection is the shiny highlight seen when the reflected ray R points towards the viewer.
+All the objects are created from C# by `SceneBuilder`, so the scene can be rebuilt at any time.
 
-For colour, the ambient and diffuse terms are multiplied by the object colour `Od`, and the specular term by the
-light colour `Os` (white), so the highlight looks white:
+## Scripts
 
-```text
-I = (ka Ia + kd Il max(N . L, 0)) Od + ks Il max(R . V, 0)^n Os
-```
+`Assets/Exp9/Scripts`
 
-## Algorithm
+| Script | Purpose |
+| --- | --- |
+| `SceneBuilder.cs` | Creates all the objects, lights, the camera and the player |
+| `PlayerController.cs` | Walking, mouse look, jumping, clicking objects, pushing rigidbodies |
+| `LabGame.cs` | Score, on-screen instructions, lamp switch and reset |
+| `Collectible.cs` | Coin that is collected when the player enters its trigger |
+| `ColorChanger.cs` | Cycles an object through a list of colours |
+| `Spinner.cs` | Rotates an object continuously |
+| `Tint.cs` | Gives each object its own colour (works with the built-in pipeline and URP) |
+| `GameInput.cs` | Reads the keyboard and mouse with either the old Input Manager or the new Input System |
 
-1. Read the light position and the coefficients `ka`, `kd`, `ks` and `n`.
-2. For each pixel `(x, y)` of the image, check whether the ray along the z axis hits the sphere: `x² + y² <= r²`.
-   If it does not, use the background colour.
-3. Find the visible surface point `P = (x, y, sqrt(r² - x² - y²))` and the unit normal `N = P / r`.
-4. Compute `L = normalise(light - P)`, `V = normalise(viewer - P)` and `R = 2 (N . L) N - L`.
-5. Compute the ambient, diffuse and specular terms. The specular term is zero when `N . L <= 0`.
-6. Combine the terms, clamp each RGB channel to `[0, 1]` and set the pixel colour.
+## Setting up in Unity
 
-## Program
+1. Install Unity Hub and a Unity Editor (2022.3 LTS or Unity 6).
+2. Create a new project with the **3D (Built-In Render Pipeline)** or **Universal 3D** template.
+3. Copy the folder `Assets/Exp9` from this experiment into the `Assets` folder of the Unity project.
+4. Create a new scene (File > New Scene), then choose **CGVR Lab > Exp 9 - Build Interactive Scene** from the
+   menu bar. All the objects appear in the Hierarchy and the Scene view.
+5. Save the scene (File > Save As, for example `Exp9`) and press **Play**. Click in the Game view to capture the mouse.
 
-The window shows four images of the same sphere: the ambient term only, the diffuse term only, the specular term
-only, and the full Phong model (their sum). The console prints the complete calculation (N, L, V, R, N.L, R.V, the
-three terms and the final colour) for three sample points: one near the highlight, one facing the viewer and one
-on the side facing away from the light.
+## Controls
 
-## Run
-
-```powershell
-python phong_illumination.py
-```
-
-Press Enter to use the default values or type your own:
-
-```text
-Light position (x y z) [2.5 2.5 4]:
-Ambient reflection coefficient ka [0.2]:
-Diffuse reflection coefficient kd [0.7]:
-Specular reflection coefficient ks [0.6]:
-Shininess (specular exponent) n [32]:
-```
-
-In the window, the arrow keys move the light and `+` / `-` double or halve the shininess `n`.
-Only Python's built-in `tkinter` library is used.
+| Key / mouse | Action |
+| --- | --- |
+| W A S D / arrow keys | Walk |
+| Mouse | Look around |
+| Space | Jump |
+| Left click | Change the colour of the cube in the centre of the screen |
+| L | Lamp on / off |
+| R | Reset the scene |
+| Esc | Free the mouse cursor |
 
 ## Result
 
-The Phong illumination model was implemented for a sphere. The ambient, diffuse and specular components were
-computed separately and combined, and changing the light position and the shininess moved and resized the
-specular highlight as expected.
+A simple interactive 3D scene was created in Unity with primitives, materials, lights, a first-person camera,
+physics objects, collectible triggers and C# scripts that respond to keyboard and mouse input.
