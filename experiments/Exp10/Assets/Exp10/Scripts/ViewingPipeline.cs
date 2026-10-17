@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace CGVR.Exp10
 {
@@ -37,14 +38,19 @@ namespace CGVR.Exp10
         }
 
         ViewResult[] results;
-        GUIStyle textStyle;
-        GUIStyle titleStyle;
-        Texture2D markerTexture;
+        Image[] titleBoxes;
+        Text[] titleTexts;
+        Image[][] markers;
+        Text[] tracedLabels;
+        Image infoBox;
+        Text infoText;
 
         void Start()
         {
             ApplyCameras();
             results = ComputeAll();
+            CreateOverlay();
+            UpdateOverlay();
             PrintMatrices();
         }
 
@@ -57,6 +63,7 @@ namespace CGVR.Exp10
 
             ApplyCameras();
             results = ComputeAll();
+            UpdateOverlay();
 
             if (GameInput.PrintPressed())
             {
@@ -296,72 +303,130 @@ namespace CGVR.Exp10
             );
         }
 
-        void OnGUI()
+        // ---------- On-screen overlay ----------
+
+        // A Screen Space Overlay canvas is drawn over the whole window after every camera has rendered,
+        // so the labels and markers appear in both viewports (OnGUI would be clipped to one viewport in URP).
+        // Its children are anchored at the bottom left, so their positions are screen pixels, the same as
+        // Camera.pixelRect and the viewport transformation above.
+        void CreateOverlay()
         {
-            if (results == null)
+            GameObject canvasObject = new GameObject("Pipeline Overlay");
+            canvasObject.transform.SetParent(transform, false);
+            Canvas canvas = canvasObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;
+            Transform parent = canvasObject.transform;
+
+            titleBoxes = new Image[2];
+            titleTexts = new Text[2];
+            markers = new Image[2][];
+            tracedLabels = new Text[2];
+
+            for (int c = 0; c < 2; c++)
             {
-                return;
+                titleBoxes[c] = CreateBox("Viewport Title", parent, new Color(0f, 0f, 0f, 0.6f));
+                titleBoxes[c].rectTransform.sizeDelta = new Vector2(440f, 30f);
+                titleTexts[c] = CreateLabel(titleBoxes[c].transform, 16, FontStyle.Bold);
+                markers[c] = new Image[HouseModel.Vertices.Length];
+
+                for (int i = 0; i < markers[c].Length; i++)
+                {
+                    markers[c][i] = CreateBox("Vertex " + i, parent, i == tracedVertex ? Color.yellow : Color.red);
+                    markers[c][i].rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                    markers[c][i].rectTransform.sizeDelta = new Vector2(9f, 9f);
+                }
+
+                Image labelBox = CreateBox("Traced Vertex Label", parent, new Color(0f, 0f, 0f, 0f));
+                labelBox.rectTransform.sizeDelta = new Vector2(60f, 26f);
+                tracedLabels[c] = CreateLabel(labelBox.transform, 16, FontStyle.Bold);
+                tracedLabels[c].text = "V" + tracedVertex;
             }
 
-            if (textStyle == null)
+            infoBox = CreateBox("Pipeline Info", parent, new Color(0f, 0f, 0f, 0.6f));
+            infoBox.rectTransform.anchoredPosition = new Vector2(10f, 10f);
+            infoBox.rectTransform.sizeDelta = new Vector2(860f, 100f);
+            infoText = CreateLabel(infoBox.transform, 14, FontStyle.Normal);
+        }
+
+        void UpdateOverlay()
+        {
+            for (int c = 0; c < results.Length; c++)
             {
-                textStyle = new GUIStyle(GUI.skin.label);
-                textStyle.fontSize = 13;
-                textStyle.normal.textColor = Color.white;
-
-                titleStyle = new GUIStyle(textStyle);
-                titleStyle.fontSize = 15;
-                titleStyle.fontStyle = FontStyle.Bold;
-
-                markerTexture = Texture2D.whiteTexture;
-            }
-
-            foreach (ViewResult result in results)
-            {
+                ViewResult result = results[c];
                 Rect viewport = result.camera.pixelRect;
-                float top = Screen.height - viewport.yMax;
-
-                GUI.Box(new Rect(viewport.x + 8, top + 8, 400, 26), "");
-                GUI.Label(new Rect(viewport.x + 14, top + 10, 400, 24), result.title, titleStyle);
+                titleBoxes[c].rectTransform.anchoredPosition = new Vector2(viewport.x + 8f, viewport.yMax - 38f);
+                titleTexts[c].text = result.title;
 
                 // Red squares: screen positions worked out by hand; they should sit on the house corners
-                for (int i = 0; i < result.screen.Length; i++)
+                for (int i = 0; i < markers[c].Length; i++)
                 {
-                    if (!result.visible[i])
-                    {
-                        continue;
-                    }
-
-                    Vector2 point = result.screen[i];
-                    float guiY = Screen.height - point.y;
-                    Color previous = GUI.color;
-                    GUI.color = i == tracedVertex ? Color.yellow : Color.red;
-                    GUI.DrawTexture(new Rect(point.x - 4, guiY - 4, 8, 8), markerTexture);
-                    GUI.color = previous;
-
-                    if (i == tracedVertex)
-                    {
-                        GUI.Label(new Rect(point.x + 6, guiY - 22, 60, 20), "V" + i, titleStyle);
-                    }
+                    markers[c][i].gameObject.SetActive(result.visible[i]);
+                    markers[c][i].rectTransform.anchoredPosition = result.screen[i];
                 }
+
+                tracedLabels[c].transform.parent.gameObject.SetActive(result.visible[tracedVertex]);
+                ((RectTransform)tracedLabels[c].transform.parent).anchoredPosition = result.screen[tracedVertex] + new Vector2(4f, 2f);
             }
 
             ViewResult perspective = results[0];
             ViewResult orthographic = results[1];
-            Vector2 traced = perspective.screen[tracedVertex];
 
-            GUI.Box(new Rect(10, Screen.height - 120, 760, 110), "");
-            GUI.Label(
-                new Rect(18, Screen.height - 116, 750, 106),
+            infoText.text =
                 "Modeling -(M)-> World -(V)-> Camera -(P)-> Clip -(divide by w)-> NDC -(viewport)-> Screen\n" +
-                "Vertex " + tracedVertex + " (yellow): clip " + perspective.tracedClip.ToString("F2") +
-                "   NDC " + perspective.tracedNdc.ToString("F2") + "   screen " + traced.ToString("F1") + "\n" +
+                "Vertex " + tracedVertex + " (yellow), perspective view: clip " + perspective.tracedClip.ToString("F2") +
+                "   NDC " + perspective.tracedNdc.ToString("F2") + "   screen " + perspective.screen[tracedVertex].ToString("F1") + "\n" +
                 "Hand-made matrices vs Unity: largest difference V = " + perspective.viewError.ToString("F5") +
                 ", P = " + Mathf.Max(perspective.projectionError, orthographic.projectionError).ToString("F5") +
                 ", screen points = " + Mathf.Max(perspective.screenError, orthographic.screenError).ToString("F3") + " px\n" +
-                "Arrow keys: orbit the camera     + / - : move closer / farther     M: print all matrices to the Console",
-                textStyle
-            );
+                "Arrow keys: orbit the camera     + / - : move closer / farther     M: print all matrices to the Console";
+        }
+
+        static RectTransform CreateRect(string name, Transform parent)
+        {
+            GameObject item = new GameObject(name, typeof(RectTransform));
+            item.transform.SetParent(parent, false);
+            RectTransform rect = item.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.zero;
+            rect.pivot = Vector2.zero;
+            return rect;
+        }
+
+        static Image CreateBox(string name, Transform parent, Color color)
+        {
+            Image box = CreateRect(name, parent).gameObject.AddComponent<Image>();
+            box.color = color;
+            box.raycastTarget = false;
+            return box;
+        }
+
+        static Text CreateLabel(Transform box, int fontSize, FontStyle style)
+        {
+            // Text stretched over its box with a small margin
+            RectTransform rect = CreateRect("Text", box);
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(8f, 3f);
+            rect.offsetMax = new Vector2(-8f, -3f);
+
+            Text text = rect.gameObject.AddComponent<Text>();
+            text.font = LabelFont();
+            text.fontSize = fontSize;
+            text.fontStyle = style;
+            text.color = Color.white;
+            text.alignment = TextAnchor.MiddleLeft;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.raycastTarget = false;
+            return text;
+        }
+
+        static Font LabelFont()
+        {
+#if UNITY_2022_2_OR_NEWER
+            return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+#else
+            return Resources.GetBuiltinResource<Font>("Arial.ttf");
+#endif
         }
     }
 }
