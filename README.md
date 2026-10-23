@@ -21,6 +21,12 @@ Computer Graphics and Virtual Reality lab records.
 Each experiment folder has a README with the aim, course outcome, learning objectives, theory, algorithm,
 how to run it and the result.
 
+## Case studies
+
+| Case study | Write-up | Interactive demo |
+| --- | --- | --- |
+| 2. Industrial Design and Architecture (VR car design, Bengaluru + Detroit) | [`case-study/CaseStudy2`](case-study/CaseStudy2) | Unity, runs on a phone or laptop browser: <https://pranav-nayak-123.github.io/CGVR/> |
+
 ## Running the OpenGL experiments (0 to 7)
 
 ```powershell
